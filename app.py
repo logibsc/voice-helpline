@@ -1,37 +1,55 @@
-import whisper
-import sounddevice as sd
-import numpy as np
-import wave
+import speech_recognition as sr
 import pyttsx3
+import google.generativeai as genai
+import os
 
-model = whisper.load_model("base")
-tts = pyttsx3
+# Gemini API Key
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+genai.configure(api_key=GEMINI_API_KEY)
+model = genai.GenerativeModel("gemini-1.5-pro")
 
-def record_audio(filename = "input.wav", duration = 5, samplerate = 44100):
-    print("\n listening... (speak now)")
-    audio_data = sd.rec(int(samplerate * duration), samplerate=samplerate, channels=1, dtype=np.int16)
-    sd.wait()
-    with wave.open(filename, "wb") as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(samplerate)
-        wf.writeframes(audio_data.tobytes())
+# Initialize text-to-speech engine
+engine = pyttsx3.init()
+engine.setProperty("rate", 150)
 
 def speak(text):
-    print("responding: ", text)
-    engine = pyttsx3.init()
+    print("🔊 Speaking: ", text)
     engine.say(text)
     engine.runAndWait()
 
-while True:
-    record_audio()
-    result = model.transcribe("input.wav")
-    user_input = result["text"].strip().lower()
-    print("you said: ", user_input)
+def listen():
+    r = sr.Recognizer()
+    mic = sr.Microphone()
+    print("🎤 Waiting for your voice...")
 
-    if any(exit_word in user_input for exit_word in ["bye", "exit", "quit", "stop"]):
-        speak("Goodbye, logi. Take care!")
-        break
+    with mic as source:
+        r.adjust_for_ambient_noise(source)
+        audio = r.listen(source)
+        print("✅ Got the audio, transcribing...")
 
-    response = f"You said: {user_input}"
-    speak(response)
+    try:
+        query = r.recognize_google(audio, language='en-IN')
+        print("🗣️ You said: ", query)
+        return query  # ✅ RETURNING the actual query
+    except sr.UnknownValueError:
+        print("❌ Could not understand audio.")
+        return None
+    except sr.RequestError as e:
+        print(f"🚫 Couldn’t request results; {e}")
+        return None
+
+def generate_response(prompt):
+    print("🤖 Thinking...")
+    response = model.generate_content(prompt)
+    return response.text
+
+if __name__ == "__main__":
+    while True:
+        query = listen()
+        if query:
+            if query.lower() in ["stop", "exit", "quit"]:
+                speak("Okay, shutting down. Bye bye!")
+                break
+            response = generate_response(query)
+            print("💬 Gemini: ", response)
+            speak(response)
